@@ -116,32 +116,95 @@ conv5_2_bn_2_var   = o.modules[7].modules[1].modules[0].modules[0].modules[4].ru
 fc_weights = o.modules[10].weight
 fc_biases = o.modules[10].bias
 
+"""
+The mapping of names is as follows
+convB_U
+B is the block and U is the unit
+
+"""
+def convert_model_name(src_name,
+                       resnet_scope='resnet_v1_18',
+                       block_type='resnet_unit_v1'):   # or bottleneck_v1
+    """
+    # 'FirstStageFeatureExtractor/resnet_v1_18/resnet_v1_18/conv1/Relu'
+    # 'FirstStageFeatureExtractor/resnet_v1_18/resnet_v1_18/block2/unit_2/resnet_unit_v1/conv2/BatchNorm/
+    :param src_name:
+    :param resnet_scope:
+    :param block_type:
+    :return:
+    """
+    import re
+    matcher = re.compile('conv(\d+)_(\d+)')
+
+    first_stage_prefix = 'FirstStageFeatureExtractor'
+    second_stage_prefix = 'SecondStageFeatureExtractor'
+
+    segments = src_name.split('/')
+    match = matcher.match(segments[0])
+    if not match:
+        if segments[0] == 'conv1':
+            dst_name = '{}/{}/conv1'.format(first_stage_prefix, resnet_scope)
+        else:
+            print(src_name)
+            return
+    else:
+        block_num = int(match[1]) - 1
+        unit_num = int(match[2])
+        stage_prefix = first_stage_prefix if block_num < 4 else second_stage_prefix
+
+        dst_name = '{}/{}/block{}/unit_{}/{}/'.format(stage_prefix, resnet_scope, block_num, unit_num, block_type)
+
+    # Parse segment[1]
+    if segments[1] == 'shortcut':
+        dst_name = dst_name + 'shortcut'
+    else:
+        sub_name = ''
+        if '_' in segments[1]:
+            op_name, sub_id = segments[1].split('_')
+            sub_name = 'conv{}'.format(sub_id)
+        else:
+            op_name = segments[1]
+
+        if op_name == 'bn':
+            sub_name = sub_name + '/BatchNorm'
+        dst_name = dst_name + sub_name
+
+    # Parse segment[2]
+    name_mapping = {'kernel': 'weights',
+                    'mu': 'moving_mean',
+                    'sigma': 'moving_variance',
+                    'beta': 'beta',
+                    'gamma': 'gamma',
+                    }
+
+    if len(segments) == 3:
+        dst_name = dst_name + '/{}'.format(name_mapping[segments[2]])
+
+    return dst_name
+
 model_weights_temp = {
-    'FirstStageFeatureExtractor/resnet_v1_18/conv1/weights': conv1_weights,
-    'FirstStageFeatureExtractor/resnet_v1_18/conv1/BatchNorm/moving_mean': conv1_bn_mean,
-    'FirstStageFeatureExtractor/resnet_v1_18/conv1/BatchNorm/moving_variance': conv1_bn_var,
-    'FirstStageFeatureExtractor/resnet_v1_18/conv1/BatchNorm/beta': conv1_bn_beta,
-    'FirstStageFeatureExtractor/resnet_v1_18/conv1/BatchNorm/gamma': conv1_bn_gamma,
+    'conv1/conv/kernel': conv1_weights,
+    'conv1/bn/mu': conv1_bn_mean,
+    'conv1/bn/sigma': conv1_bn_var,
+    'conv1/bn/beta': conv1_bn_beta,
+    'conv1/bn/gamma': conv1_bn_gamma,
 
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv1/weights': conv2_1_weights_1,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv1/BatchNorm/moving_mean': conv2_1_bn_1_mean,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv1/BatchNorm/moving_variance': conv2_1_bn_1_var,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv1/BatchNorm/beta': conv2_1_bn_1_beta,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv1/BatchNorm/gamma': conv2_1_bn_1_gamma,
-
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv2/weights': conv2_1_weights_2,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv2/BatchNorm/moving_mean': conv2_1_bn_2_mean,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv2/BatchNorm/moving_variance': conv2_1_bn_2_var,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv2/BatchNorm/beta': conv2_1_bn_2_beta,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv2/BatchNorm/gamma': conv2_1_bn_2_gamma,
-
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv3/weights': conv2_2_weights_1,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv3/BatchNorm/moving_mean': conv2_2_bn_1_mean,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv3/BatchNorm/moving_variance': conv2_2_bn_1_var,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv3/BatchNorm/beta': conv2_2_bn_1_beta,
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_1/bottleneck_v1/conv3/BatchNorm/gamma': conv2_2_bn_1_gamma,
-
-    'FirstStageFeatureExtractor/resnet_v1_18/block1/unit_2/bottleneck_v1/conv1/weights': conv2_2_weights_2,
+    'conv2_1/conv_1/kernel': conv2_1_weights_1,
+    'conv2_1/bn_1/mu':       conv2_1_bn_1_mean,
+    'conv2_1/bn_1/sigma':    conv2_1_bn_1_var,
+    'conv2_1/bn_1/beta':     conv2_1_bn_1_beta,
+    'conv2_1/bn_1/gamma':    conv2_1_bn_1_gamma,
+    'conv2_1/conv_2/kernel': conv2_1_weights_2,
+    'conv2_1/bn_2/mu':       conv2_1_bn_2_mean,
+    'conv2_1/bn_2/sigma':    conv2_1_bn_2_var,
+    'conv2_1/bn_2/beta':     conv2_1_bn_2_beta,
+    'conv2_1/bn_2/gamma':    conv2_1_bn_2_gamma,
+    'conv2_2/conv_1/kernel': conv2_2_weights_1,
+    'conv2_2/bn_1/mu':       conv2_2_bn_1_mean,
+    'conv2_2/bn_1/sigma':    conv2_2_bn_1_var,
+    'conv2_2/bn_1/beta':     conv2_2_bn_1_beta,
+    'conv2_2/bn_1/gamma':    conv2_2_bn_1_gamma,
+    'conv2_2/conv_2/kernel': conv2_2_weights_2,
     'conv2_2/bn_2/mu':       conv2_2_bn_2_mean,
     'conv2_2/bn_2/sigma':    conv2_2_bn_2_var,
     'conv2_2/bn_2/beta':     conv2_2_bn_2_beta,
@@ -213,8 +276,8 @@ model_weights_temp = {
     'conv5_2/bn_2/beta':     conv5_2_bn_2_beta,
     'conv5_2/bn_2/gamma':    conv5_2_bn_2_gamma,
 
-    'logits/fc/weights': fc_weights,
-    'logits/fc/biases': fc_biases,
+    #'logits/fc/weights': fc_weights,
+    #'logits/fc/biases': fc_biases,
 }
 
 # Transpose conv and fc weights
@@ -230,49 +293,75 @@ for k, v in model_weights_temp.items():
 
 
 # Build ResNet-18 model and save parameters
-with tf.Graph().as_default():
-    global_step = tf.Variable(0, trainable=False, name='global_step')
-    images = [tf.placeholder(tf.float32, [2, 224, 224, 3])]
-    labels = [tf.placeholder(tf.int32, [2])]
+path_root = '/usr/local/data/ckpts/resnet18_ISP5/export_model_879K/'  #'/home/fmannan/workspace/resnet-18-tensorflow/tmp_ckpt_testloading/' #'
+meta_path = path_root + '/model.ckpt.meta'  #'/test.ckpt.meta'  #
+ckpt_path = path_root
 
-    # Build model
-    print("Build ResNet-18 model")
-    hp = resnet.HParams(batch_size=2,
-                        num_gpus=1,
-                        num_classes=1000,
-                        weight_decay=0.001,
-                        momentum=0.9,
-                        finetune=False)
-    network_train = resnet.ResNet(hp, images, labels, global_step, name="train")
-    network_train.build_model()
-    print('Number of Weights: %d' % network_train._weights)
-    print('FLOPs: %d' % network_train._flops)
+graph = tf.Graph()
+with graph.as_default():
+    with tf.Session(graph=graph) as sess:
+        saver = tf.train.import_meta_graph(meta_path, clear_devices=True)
+        saver.restore(sess, tf.train.latest_checkpoint(ckpt_path))
 
-    # Build an initialization operation to run below.
-    init = tf.global_variables_initializer()
+        graph_def = graph.as_graph_def()
+        node_map = {n.name: n for n in graph_def.node if 'resnet' in n.name}
 
-    # Start running operations on the Graph.
-    sess = tf.Session(config=tf.ConfigProto(
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.96),
-        allow_soft_placement=True,
-        log_device_placement=False))
-    sess.run(init)
+        for key in model_weights_temp:
+            dst_name = convert_model_name(key)
+            print(dst_name)
+            assert dst_name in node_map.keys()
+            #if dst_name not in node_map.keys():
+            #    print('Not found')
+            tensor = graph.get_tensor_by_name(dst_name + ':0')
 
-    # Set variables values
-    print('Set variables to loaded weights')
-    all_vars = tf.global_variables()
-    for v in all_vars:
-        if v.op.name == 'global_step':
-            continue
-        print('\t' + v.op.name)
-        assign_op = v.assign(model_weights[v.op.name])
-        sess.run(assign_op)
+            sess.run(tf.assign(tensor, model_weights[key]))
+        saver.save(sess, './res18_pretrained_ckpt/res18_pretrained.ckpt')
 
-    # Save as checkpoint
-    print('Save as checkpoint: %s' % INIT_CHECKPOINT_DIR)
-    if not os.path.exists(INIT_CHECKPOINT_DIR):
-        os.mkdir(INIT_CHECKPOINT_DIR)
-    saver = tf.train.Saver(tf.global_variables())
-    saver.save(sess, os.path.join(INIT_CHECKPOINT_DIR, 'model.ckpt'))
 
-print('Done!')
+# # Build ResNet-18 model and save parameters
+# with tf.Graph().as_default():
+#     global_step = tf.Variable(0, trainable=False, name='global_step')
+#     images = [tf.placeholder(tf.float32, [2, 224, 224, 3])]
+#     labels = [tf.placeholder(tf.int32, [2])]
+#
+#     # Build model
+#     print("Build ResNet-18 model")
+#     hp = resnet.HParams(batch_size=2,
+#                         num_gpus=1,
+#                         num_classes=1000,
+#                         weight_decay=0.001,
+#                         momentum=0.9,
+#                         finetune=False)
+#     network_train = resnet.ResNet(hp, images, labels, global_step, name="train")
+#     network_train.build_model()
+#     print('Number of Weights: %d' % network_train._weights)
+#     print('FLOPs: %d' % network_train._flops)
+#
+#     # Build an initialization operation to run below.
+#     init = tf.global_variables_initializer()
+#
+#     # Start running operations on the Graph.
+#     sess = tf.Session(config=tf.ConfigProto(
+#         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.96),
+#         allow_soft_placement=True,
+#         log_device_placement=False))
+#     sess.run(init)
+#
+#     # Set variables values
+#     print('Set variables to loaded weights')
+#     all_vars = tf.global_variables()
+#     for v in all_vars:
+#         if v.op.name == 'global_step':
+#             continue
+#         print('\t' + v.op.name)
+#         assign_op = v.assign(model_weights[v.op.name])
+#         sess.run(assign_op)
+#
+#     # Save as checkpoint
+#     print('Save as checkpoint: %s' % INIT_CHECKPOINT_DIR)
+#     if not os.path.exists(INIT_CHECKPOINT_DIR):
+#         os.mkdir(INIT_CHECKPOINT_DIR)
+#     saver = tf.train.Saver(tf.global_variables())
+#     saver.save(sess, os.path.join(INIT_CHECKPOINT_DIR, 'model.ckpt'))
+#
+# print('Done!')
